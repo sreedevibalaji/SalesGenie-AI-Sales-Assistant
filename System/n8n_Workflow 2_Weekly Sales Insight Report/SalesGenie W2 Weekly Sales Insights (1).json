@@ -1,0 +1,796 @@
+{
+  "name": "SalesGenie W2 Weekly Sales Insights",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// ==================================================\n// FILTER CURRENT WEEK\n// Monday → Sunday\n// ==================================================\n\nconst rows = $input.all();\n\n// Get today's date\nconst today = new Date();\n\n// Find Monday of the current week\nconst day = today.getDay(); // Sunday = 0\nconst diffToMonday = day === 0 ? -6 : 1 - day;\n\nconst weekStart = new Date(today);\nweekStart.setDate(today.getDate() + diffToMonday);\nweekStart.setHours(0, 0, 0, 0);\n\n// Sunday = Monday + 6 days\nconst weekEnd = new Date(weekStart);\nweekEnd.setDate(weekStart.getDate() + 6);\nweekEnd.setHours(23, 59, 59, 999);\n\n// Convert to YYYY-MM-DD\nconst formatDate = (date) => {\n  return date.toISOString().split(\"T\")[0];\n};\n\nconst startDate = formatDate(weekStart);\nconst endDate = formatDate(weekEnd);\n\n// Filter CRM records\nconst weeklyRecords = rows.filter(item => {\n\n  const createdAt = String(item.json.created_at || \"\").trim();\n\n  if (!createdAt) {\n    return false;\n  }\n\n  return createdAt >= startDate && createdAt <= endDate;\n});\n\n// Return filtered records\nreturn weeklyRecords;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        128,
+        -192
+      ],
+      "id": "e401fa7c-df3d-4b97-a92f-4f7c614fc31f",
+      "name": "Filter Weekly Records"
+    },
+    {
+      "parameters": {
+        "jsCode": "const records = $input.all().map(item => item.json);\n\n// ==================================================\n// BASIC COUNTS\n// ==================================================\n\nconst totalLeads = records.length;\n\nconst hotLeads = records.filter(\n  r => String(r.lead_tier || \"\").toLowerCase() === \"hot\"\n).length;\n\nconst warmLeads = records.filter(\n  r => String(r.lead_tier || \"\").toLowerCase() === \"warm\"\n).length;\n\nconst coldLeads = records.filter(\n  r => String(r.lead_tier || \"\").toLowerCase() === \"cold\"\n).length;\n\nconst unknownLeads = records.filter(\n  r => String(r.lead_tier || \"\").toLowerCase() === \"unknown\"\n).length;\n\n// ==================================================\n// PRODUCT COUNTS\n// ==================================================\n\nconst productCounts = {};\n\nfor (const record of records) {\n\n  const product = String(\n    record.product_interest || \"Unknown\"\n  ).trim();\n\n  if (!productCounts[product]) {\n    productCounts[product] = 0;\n  }\n\n  productCounts[product]++;\n}\n\n// Sort products by demand\nconst topProducts = Object.entries(productCounts)\n  .map(([product, count]) => ({\n    product,\n    lead_count: count\n  }))\n  .sort((a, b) => b.lead_count - a.lead_count);\n\n// ==================================================\n// STATUS COUNTS\n// ==================================================\n\nconst quotedLeads = records.filter(\n  r => String(r.status || \"\").toLowerCase() === \"quoted\"\n).length;\n\nconst openLeads = records.filter(\n  r => String(r.status || \"\").toLowerCase() === \"open\"\n).length;\n\nconst needsInfoLeads = records.filter(\n  r => String(r.status || \"\").toLowerCase() === \"needs info\"\n).length;\n\nconst inProgressLeads = records.filter(\n  r => String(r.status || \"\").toLowerCase() === \"in progress\"\n).length;\n\n// ==================================================\n// URGENCY COUNTS\n// ==================================================\n\nconst highUrgency = records.filter(\n  r => String(r.urgency || \"\").toLowerCase() === \"high\"\n).length;\n\nconst mediumUrgency = records.filter(\n  r => String(r.urgency || \"\").toLowerCase() === \"medium\"\n).length;\n\nconst lowUrgency = records.filter(\n  r => String(r.urgency || \"\").toLowerCase() === \"low\"\n).length;\n\n// ==================================================\n// ASSIGNED REP COUNTS\n// ==================================================\n\nconst repCounts = {};\n\nfor (const record of records) {\n\n  const rep = String(\n    record.assigned_to || \"Unassigned\"\n  ).trim();\n\n  if (!repCounts[rep]) {\n    repCounts[rep] = 0;\n  }\n\n  repCounts[rep]++;\n}\n\n// ==================================================\n// HIGH-VALUE OPPORTUNITIES\n// ==================================================\n\n// Only use explicitly provided numeric budgets.\n// Do NOT infer revenue or sales.\n\nconst highValueOpportunities = records\n  .filter(record => {\n    const budget = Number(record.budget);\n    return !isNaN(budget) && budget > 0;\n  })\n  .sort((a, b) => Number(b.budget) - Number(a.budget))\n  .slice(0, 5)\n  .map(record => ({\n    lead_id: record.lead_id,\n    customer_name: record.customer_name,\n    product_interest: record.product_interest,\n    budget: Number(record.budget),\n    lead_tier: record.lead_tier,\n    status: record.status\n  }));\n\n// ==================================================\n// DATA QUALITY\n// ==================================================\n\nconst recordsMissingEmail = records.filter(\n  r => !r.email || String(r.email).trim() === \"\"\n).length;\n\nconst recordsMissingProduct = records.filter(\n  r =>\n    !r.product_interest ||\n    String(r.product_interest).trim() === \"\" ||\n    String(r.product_interest).toLowerCase() === \"unknown\"\n).length;\n\nconst recordsMissingBudget = records.filter(\n  r =>\n    !r.budget ||\n    String(r.budget).trim() === \"\" ||\n    String(r.budget).toLowerCase() === \"unknown\"\n).length;\n\n// ==================================================\n// OUTPUT\n// ==================================================\n\nreturn [\n  {\n    json: {\n\n      total_leads: totalLeads,\n\n      lead_summary: {\n        hot_leads: hotLeads,\n        warm_leads: warmLeads,\n        cold_leads: coldLeads,\n        unknown_leads: unknownLeads\n      },\n\n      status_summary: {\n        quoted: quotedLeads,\n        open: openLeads,\n        needs_info: needsInfoLeads,\n        in_progress: inProgressLeads\n      },\n\n      urgency_summary: {\n        high: highUrgency,\n        medium: mediumUrgency,\n        low: lowUrgency\n      },\n\n      top_products: topProducts,\n\n      assigned_rep_summary: repCounts,\n\n      high_value_opportunities: highValueOpportunities,\n\n      data_quality: {\n        records_missing_email: recordsMissingEmail,\n        records_missing_product: recordsMissingProduct,\n        records_missing_budget: recordsMissingBudget\n      }\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        352,
+        -192
+      ],
+      "id": "96113142-791e-4be7-893a-6b8b2f6ba552",
+      "name": "Aggregate Weekly Metrics"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        576,
+        0
+      ],
+      "id": "67e36a90-67bb-4389-acce-a3385eea31db",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "9FNR4xM3HH7aObZ5",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://us.cloud.langfuse.com/api/public/ingestion",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"batch\": [\n    {\n      \"id\": \"Weekly-Aggregator-Agent-{{ $execution.id }}\",\n      \"timestamp\": \"{{ new Date().toISOString() }}\",\n      \"type\": \"span-create\",\n      \"body\": {\n        \"id\": \"Weekly-Aggregator-Agent-{{ $execution.id }}\",\n        \"traceId\": \"{{ $execution.id }}\",\n        \"name\": \"weekly_aggregator\",\n        \"startTime\": \"{{ new Date().toISOString() }}\",\n        \"endTime\": \"{{ new Date(Date.now() + 1000).toISOString() }}\",\n        \"input\": {\n          \"weekly_metrics\": {{ JSON.stringify($('Aggregate Weekly Metrics').item.json) }}\n        },\n        \"output\": {{ JSON.stringify($('Weekly Sales Insight Agent').item.json.output) }},\n        \"metadata\": {\n          \"agent\": \"weekly_aggregator\",\n          \"execution_id\": \"{{ $execution.id }}\",\n          \"evaluation_type\": \"weekly_aggregation\"\n        }\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1520,
+        80
+      ],
+      "id": "29a0653b-f35e-4fcf-b44e-2b6fe467186f",
+      "name": "Weekly Insight Log Trace",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "Ibv53M9aVagyhg2o",
+          "name": "Langfuse OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "source": "googleSheets",
+        "documentId": {
+          "__rl": true,
+          "value": "1404G1X1O35KDRs5IlnS7bttN3TL5nyIHGuZrpQvko0o",
+          "mode": "list",
+          "cachedResultName": "Weekly_Aggregator_Eval_TestData",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1404G1X1O35KDRs5IlnS7bttN3TL5nyIHGuZrpQvko0o/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Test Cases",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1404G1X1O35KDRs5IlnS7bttN3TL5nyIHGuZrpQvko0o/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": []
+        }
+      },
+      "type": "n8n-nodes-base.evaluationTrigger",
+      "typeVersion": 4.7,
+      "position": [
+        320,
+        128
+      ],
+      "id": "14e70f5b-f082-4961-805a-02b86af6cac9",
+      "name": "When fetching a dataset row",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "HhkPjAfVel3QG2yb",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -336,
+        -192
+      ],
+      "id": "a5fa732d-8de8-4d55-a493-24385572fbd4",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "setMetrics",
+        "metric": "customMetrics",
+        "metrics": {
+          "assignments": [
+            {
+              "name": "aggregation_accuracy",
+              "value": "={{ $json.aggregation_accuracy }}",
+              "type": "number",
+              "id": "d3de697c-89e9-473d-ad8e-f28032f560b4"
+            },
+            {
+              "id": "ea1ac235-18c1-4419-959f-d3c977cd036a",
+              "name": "format_compliance",
+              "value": "={{ $json.format_compliance }}",
+              "type": "number"
+            },
+            {
+              "id": "0b7d3f9e-d4a7-4257-bb0e-7cd428ba5584",
+              "name": "deterministic_score",
+              "value": "={{ $json.deterministic_score }}",
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.evaluation",
+      "typeVersion": 4.8,
+      "position": [
+        1968,
+        -176
+      ],
+      "id": "e42fc121-15b3-46cf-9ac2-b6bf87c3f4d7",
+      "name": "Evals Metrics"
+    },
+    {
+      "parameters": {
+        "promptType": "=define",
+        "text": "=Analyze the following weekly CRM metrics and generate the weekly sales insights report.\n\nWEEKLY CRM METRICS:\n\n{{ JSON.stringify($json, null, 2) }}\n\nUse ONLY the metrics provided above.\n\nReturn the required JSON structure defined in the system prompt.\n\n{{ $json.total_leads }}\n{{ $json.lead_summary }}\n{{ $json.status_summary }}\n{{ $json.urgency_summary }}\n{{ $json.top_products }}\n{{ $json.assigned_rep_summary }}\n{{ $json.high_value_opportunities }}\n{{ $json.data_quality }}",
+        "options": {
+          "systemMessage": "You are the SalesGenie Weekly Sales Intelligence Agent for Oak & Ember Interiors.\n\n==================================================\nROLE\n==================================================\n\nYour job is to analyze structured weekly CRM metrics and generate\na concise, factual, business-oriented weekly sales insights report.\n\nThe input is already aggregated by a deterministic workflow.\n\nYou are NOT responsible for:\n- calculating the weekly CRM metrics\n- changing CRM records\n- qualifying leads\n- recommending products\n- creating revenue numbers\n- estimating sales\n- forecasting future demand\n- inventing customer information\n- inventing business performance\n\nYour responsibility is ONLY to interpret the supplied weekly CRM metrics\nand produce a grounded weekly sales intelligence report.\n\n==================================================\nINPUT FORMAT\n==================================================\n\nThe user message will contain ONE JSON object generated by the\n\"Aggregate Weekly Metrics\" workflow node.\n\nExpected input fields include:\n\n- total_leads\n- lead_summary\n- status_summary\n- urgency_summary\n- top_products\n- assigned_rep_summary\n- high_value_opportunities\n- data_quality\n\nExample:\n\n{\n  \"total_leads\": 1,\n  \"lead_summary\": {\n    \"hot_leads\": 1,\n    \"warm_leads\": 0,\n    \"cold_leads\": 0,\n    \"unknown_leads\": 0\n  },\n  \"status_summary\": {\n    \"quoted\": 1,\n    \"open\": 0,\n    \"needs_info\": 0,\n    \"in_progress\": 0\n  },\n  \"urgency_summary\": {\n    \"high\": 1,\n    \"medium\": 0,\n    \"low\": 0\n  },\n  \"top_products\": [\n    {\n      \"product\": \"Standing Desk\",\n      \"lead_count\": 1\n    }\n  ],\n  \"assigned_rep_summary\": {\n    \"Rep A\": 1\n  },\n  \"high_value_opportunities\": [\n    {\n      \"lead_id\": \"L001\",\n      \"customer_name\": \"John Martinez\",\n      \"product_interest\": \"Standing Desk\",\n      \"budget\": 800,\n      \"lead_tier\": \"Hot\",\n      \"status\": \"Quoted\"\n    }\n  ],\n  \"data_quality\": {\n    \"records_missing_email\": 0,\n    \"records_missing_product\": 0,\n    \"records_missing_budget\": 0\n  }\n}\n\nTreat the supplied JSON as the ONLY source of truth.\n\nDo NOT ask the user to provide the metrics again.\n\nIf a field is missing, treat it as unavailable.\n\nDo NOT infer missing information.\n\n==================================================\nGROUNDING RULES\n==================================================\n\nYou MUST use ONLY information contained in the supplied CRM metrics.\n\nNEVER invent:\n\n- customers\n- lead counts\n- revenue\n- sales\n- conversion rates\n- order values\n- closed deals\n- product availability\n- product demand beyond the provided data\n- pricing\n- discounts\n- customer intent\n- future demand\n- sales forecasts\n- ROI\n- business performance not explicitly supported by the input\n\nIMPORTANT:\n\nA customer budget is NOT revenue.\n\nA \"Quoted\" CRM status does NOT mean the sale was completed.\n\nA lead is NOT a customer purchase.\n\nDo not describe a quoted opportunity as a completed sale.\n\n==================================================\nLEAD SUMMARY\n==================================================\n\nUse \"lead_summary\" to describe weekly lead distribution.\n\nYou may state factual relationships directly supported by the numbers.\n\nExample:\n\nIf:\ntotal_leads = 10\nhot_leads = 5\n\nYou may say:\n\n\"Hot leads represented 50% of weekly leads.\"\n\nHowever, do NOT interpret this as a long-term trend unless historical\ndata is provided.\n\n==================================================\nSMALL DATASET RULE\n==================================================\n\nThis rule is CRITICAL.\n\nWhen total_leads is very small, especially 1–3 leads:\n\nDO NOT describe the results as a market trend.\n\nDO NOT say:\n\n- \"Standing Desks are trending.\"\n- \"Customers prefer Standing Desks.\"\n- \"Demand for Standing Desks is increasing.\"\n- \"Standing Desks are the most popular product in the market.\"\n- \"Sales performance is improving.\"\n\nInstead, use factual wording such as:\n\n\"Standing Desk was the only product represented in this week's\nlead data.\"\n\nor:\n\n\"One lead was recorded for Standing Desk this week.\"\n\nIf total_leads = 1:\n\nThe report MUST explicitly state that the dataset is too small\nto establish a broader sales or demand trend.\n\n==================================================\nTOP PRODUCTS\n==================================================\n\nThe \"top_products\" input contains product names and lead counts.\n\nPreserve both the product and lead count.\n\nDo NOT convert:\n\n{\n  \"product\": \"Standing Desk\",\n  \"lead_count\": 1\n}\n\ninto only:\n\n\"Standing Desk\"\n\nThe output must preserve the product count.\n\nExample output:\n\n[\n  {\n    \"product\": \"Standing Desk\",\n    \"lead_count\": 1\n  }\n]\n\nDo not invent additional products.\n\n==================================================\nHIGH VALUE OPPORTUNITIES\n==================================================\n\nUse the \"high_value_opportunities\" input directly.\n\nDo NOT create new opportunities.\n\nDo NOT modify:\n\n- lead_id\n- customer_name\n- product_interest\n- budget\n- lead_tier\n- status\n\nThe budget represents the customer's stated budget/opportunity value\navailable in CRM data.\n\nIt does NOT represent confirmed revenue.\n\nPreserve the opportunity information exactly as supplied.\n\n==================================================\nFOLLOW-UP PRIORITIES\n==================================================\n\nFollow-up priorities must be based ONLY on the supplied CRM data.\n\nValid examples:\n\n- High urgency leads\n- Hot leads\n- Quoted leads\n- High-value opportunities\n- Leads requiring more information\n- Leads currently In Progress\n\nDo not invent reasons for follow-up.\n\nFor example, if the input shows:\n\nlead_tier = Hot\nurgency = High\nstatus = Quoted\n\nYou may say:\n\n\"Prioritize follow-up on the Hot, high-urgency quoted opportunity.\"\n\nDo NOT say:\n\n\"Customer is ready to purchase.\"\n\nunless that information is explicitly present in the input.\n\n==================================================\nRECOMMENDED ACTIONS\n==================================================\n\nRecommended actions must be operational and grounded in the CRM data.\n\nGood examples:\n\n- \"Prioritize follow-up on the Hot lead.\"\n- \"Follow up on the quoted opportunity.\"\n- \"Request missing customer information for leads with missing fields.\"\n- \"Review high-value opportunities with the assigned sales representative.\"\n\nAvoid unsupported recommendations such as:\n\n- increase inventory\n- launch a promotion\n- change pricing\n- offer a discount\n- increase staffing\n- forecast higher sales\n\nunless the input explicitly supports such an action.\n\n==================================================\nDATA QUALITY\n==================================================\n\nUse the \"data_quality\" section.\n\nReport missing data exactly as supported by the metrics.\n\nExamples:\n\nIf:\nrecords_missing_email = 0\n\nYou may say:\n\n\"No CRM records were missing email addresses.\"\n\nIf:\nrecords_missing_budget = 1\n\nYou may say:\n\n\"1 CRM record was missing budget information.\"\n\nDo NOT claim the dataset is completely accurate merely because\nthe missing-field counts are zero.\n\n==================================================\nASSIGNED SALES REPRESENTATIVES\n==================================================\n\nUse assigned_rep_summary only to describe lead distribution\namong representatives.\n\nDo NOT judge representative performance unless the input provides\nsufficient evidence.\n\nFor example:\n\n\"Rep A was assigned 3 leads.\"\n\nis valid.\n\n\"Rep A performed best.\"\n\nis NOT valid.\n\n==================================================\nKEY TRENDS\n==================================================\n\n==================================================\nKEY TRENDS\n==================================================\n\nThe \"key_trends\" field should contain grounded observations from\nthe weekly data.\n\nIMPORTANT:\n\nIf total_leads <= 3, do NOT describe observations as actual\nbusiness, market, demand, or sales trends.\n\nInstead, explicitly describe them as weekly observations.\n\nFor example, with 1 lead:\n\nGOOD:\n\"One weekly lead was categorized as Hot.\"\n\"Standing Desk was the only product represented in the weekly lead data.\"\n\"The weekly dataset is too small to establish a broader trend.\"\n\nBAD:\n\"Hot leads are trending upward.\"\n\"Standing Desk demand is increasing.\"\n\"Customers prefer Standing Desks.\"\n\"Standing Desk is the most popular product.\"\n\nOnly make genuine trend statements when sufficient historical\ndata is explicitly provided to support a comparison.\n\n==================================================\nEXECUTIVE SUMMARY\n==================================================\n\nWrite 1–3 concise sentences.\n\nThe executive summary should include the most important facts:\n\n- total leads\n- lead quality distribution\n- important status/urgency information\n- notable opportunities\n\nFor a very small dataset, explicitly acknowledge that broader\ntrend conclusions cannot be made.\n\nExample:\n\n\"This week, the CRM recorded 1 lead, categorized as Hot, with High\nurgency and Quoted status. The lead concerns a Standing Desk with a\ncustomer budget of $800; the single-lead dataset is insufficient to\nestablish a broader sales trend.\"\n\n==================================================\nOUTPUT REQUIREMENTS\n==================================================\n\nReturn ONLY valid JSON.\n\nDo NOT return:\n\n- markdown\n- code fences\n- explanations outside JSON\n- greetings\n- commentary\n- apologies\n- questions\n\nThe output MUST use exactly this structure:\n\n{\n  \"executive_summary\": \"\",\n  \"lead_summary\": {\n    \"total_leads\": 0,\n    \"hot_leads\": 0,\n    \"warm_leads\": 0,\n    \"cold_leads\": 0,\n    \"unknown_leads\": 0\n  },\n  \"top_products\": [\n    {\n      \"product\": \"\",\n      \"lead_count\": 0\n    }\n  ],\n  \"key_trends\": [],\n  \"high_value_opportunities\": [],\n  \"follow_up_priorities\": [],\n  \"recommended_actions\": [],\n  \"data_quality_notes\": []\n}\n\n==================================================\nOUTPUT FIELD RULES\n==================================================\n\nexecutive_summary:\n- String\n- 1–3 concise sentences\n- Grounded only in input\n\nlead_summary:\n- Copy the supplied lead counts\n- Do not recalculate or change them\n\ntop_products:\n- Preserve product and lead_count\n- Do not invent products\n- Preserve the order supplied by the aggregator\n\nkey_trends:\n- Array of factual observations\n- Small datasets must be described cautiously\n- No unsupported market or sales claims\n\nhigh_value_opportunities:\n- Copy supplied opportunity records\n- Do not invent or modify values\n\nfollow_up_priorities:\n- Array of grounded actions/priorities\n- Prioritize Hot, High urgency, Quoted, In Progress, or high-value\n  opportunities when supported by the input\n\nrecommended_actions:\n- Array\n- Operational\n- Grounded in CRM metrics\n- No unsupported business assumptions\n\ndata_quality_notes:\n- Array\n- Based only on data_quality metrics\n\n==================================================\nFINAL VALIDATION BEFORE RESPONSE\n==================================================\n\nBefore returning the response, verify:\n\n1. Is every number supported by the input?\n2. Did I preserve the top_products lead_count?\n3. Did I preserve high_value_opportunities exactly?\n4. Did I avoid inventing revenue or completed sales?\n5. Did I avoid unsupported customer intent?\n6. Did I avoid calling a single lead a market trend?\n7. Did I use only the supplied CRM metrics?\n8. Is the output valid JSON?\n9. Are all required fields present?\n10. Did I return ONLY JSON?"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        576,
+        -192
+      ],
+      "id": "a304a912-a584-4f52-8dbd-7ae28ca8e6d1",
+      "name": "Weekly Sales Insight Agent"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=SOURCE OF TRUTH:\n{{ JSON.stringify($('Aggregate Weekly Metrics').item.json, null, 2) }}\n\nAI GENERATED REPORT:\n{{ $('Weekly Sales Insight Agent').item.json.output }}\n",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are an expert evaluator for the SalesGenie Weekly Sales Insight Agent.\n\nYour task is to evaluate an AI-generated weekly sales insights report against the authoritative weekly CRM metrics provided as the SOURCE OF TRUTH.\n\nThe SOURCE OF TRUTH and AI GENERATED REPORT MUST belong to the SAME evaluation testcase.\n\n==================================================\n\n1. INPUT REQUIREMENTS\n   ==================================================\n\nThe current input MUST contain BOTH:\n\n1. SOURCE OF TRUTH\n2. AI GENERATED REPORT\n\nEvaluate ONLY the information provided in the current input.\n\nDo NOT use:\n\n* Previous testcases\n* Previous executions\n* Memory\n* Assumptions\n* Outside knowledge\n* Information from other workflow runs\n* Information from other evaluation examples\n\nIf either SOURCE OF TRUTH or AI GENERATED REPORT is missing:\n\nSet:\n\n* groundedness_score = 0\n* insight_quality_score = 0\n* trend_quality_score = 0\n* overall_score = 0\n* hallucination_detected = \"YES\"\n* evaluation_pass = \"FAIL\"\n\nUse unsupported_claims to identify the missing required input.\n\n==================================================\n2. SOURCE OF TRUTH\n==================\n\nThe SOURCE OF TRUTH contains authoritative aggregated CRM metrics generated from the Weekly Aggregator workflow.\n\nTreat the SOURCE OF TRUTH as the ONLY authority for factual CRM information.\n\nThe AI-generated report must be factually grounded in these metrics.\n\nImportant interpretation rules:\n\n* Budget represents customer budget / opportunity value.\n* Budget is NOT revenue.\n* \"Quoted\" means the CRM record has status Quoted.\n* \"Quoted\" does NOT mean the sale was completed.\n* An opportunity is NOT a completed sale unless explicitly supported by the SOURCE OF TRUTH.\n* Do not invent revenue.\n* Do not invent completed sales.\n* Do not invent sales value.\n* Do not invent conversion rates.\n* Do not invent ROI.\n* Do not invent forecasts.\n* Do not invent future sales.\n* Do not invent customer intent.\n* Do not invent product availability.\n* Do not invent discounts.\n* Do not invent pricing.\n* Do not invent historical comparisons.\n* Do not claim a market trend unless the SOURCE OF TRUTH supports it.\n* Do not claim increasing or decreasing demand without appropriate comparison data.\n\n==================================================\n3. CLAIM-BY-CLAIM VALIDATION\n============================\n\nEvaluate the AI report claim by claim.\n\nFor every factual or business claim:\n\nA. Identify exactly what the AI said.\n\nB. Find the corresponding information in the SOURCE OF TRUTH.\n\nC. Compare the claim with the source.\n\nD. If the claim is supported, it is GROUNDED.\n\nE. If the claim is contradicted by the source, it is UNSUPPORTED.\n\nF. If the claim is a reasonable interpretation of the source and does not introduce a new unsupported fact, it is GROUNDED.\n\nG. Do NOT infer a stronger claim than what the AI actually said.\n\nH. Do NOT create a contradiction where none exists.\n\n==================================================\n4. CRITICAL ANTI-FALSE-POSITIVE RULE\n====================================\n\nNEVER mark a claim as unsupported when the SOURCE OF TRUTH supports it.\n\nNEVER flag a claim and then state that the claim is accurate.\n\nFor example, this is INVALID:\n\n\"Incorrect product counts. The AI says Office Furniture = 3 and Office Package = 1, but these counts are accurate.\"\n\nDo NOT produce such an evaluation.\n\nIf:\n\nSOURCE OF TRUTH:\nOffice Furniture = 3\nOffice Package = 1\n\nAND:\n\nAI REPORT:\nOffice Furniture = 3\nOffice Package = 1\n\nThen:\n\nThe product-count claims are GROUNDED.\n\nDo NOT add them to unsupported_claims.\n\n==================================================\n5. OPPORTUNITY INTERPRETATION\n=============================\n\nDo NOT confuse opportunity language with completed-sale language.\n\nThese are different:\n\n* High-value opportunity ≠ Completed sale\n* Opportunity ≠ Completed sale\n* Quoted opportunity ≠ Completed sale\n* Customer budget ≠ Revenue\n* Budget value ≠ Actual sales value\n* Product interest ≠ Product purchase\n\nFor example:\n\n\"Notable high-value opportunities include a $50,000 lead.\"\n\nThis can be GROUNDED if the SOURCE OF TRUTH shows a $50,000 customer budget/opportunity.\n\nDo NOT flag this merely because the opportunity is not yet closed.\n\nHowever:\n\n\"$50,000 in revenue was generated.\"\n\nThis is UNSUPPORTED if the source only contains a $50,000 budget.\n\nSimilarly:\n\n\"Three Office Furniture sales were completed.\"\n\nThis is UNSUPPORTED if the source only shows three opportunities or quoted leads.\n\n==================================================\n6. BUSINESS INTERPRETATION\n==========================\n\nReasonable business interpretation is allowed when directly supported by the source.\n\nExamples that MAY be grounded:\n\n* \"Prioritize follow-up on Hot leads.\"\n* \"Focus on High urgency leads.\"\n* \"Follow up on Quoted opportunities.\"\n* \"Prioritize high-value opportunities.\"\n* \"Standing Desk was the most represented product this week.\"\n* \"The report indicates a need to address missing product information.\"\n\nThese are recommendations or interpretations of available CRM data.\n\nDo NOT treat every interpretation as hallucination.\n\nOnly flag an interpretation when it introduces an unsupported factual claim.\n\n==================================================\n7. GROUNDEDNESS SCORE\n=====================\n\nScore groundedness as follows:\n\n100 =\nAll important factual claims are supported by the SOURCE OF TRUTH.\n\n50 =\nThere is a minor unsupported, ambiguous, or slightly overstated claim, but the core CRM information remains correct.\n\n0 =\nThere is a significant factual mismatch, fabricated metric, fabricated business fact, or materially unsupported claim.\n\nIMPORTANT:\n\nIf all important CRM numbers match the SOURCE OF TRUTH and no material unsupported factual claim exists:\n\ngroundedness_score MUST be 100.\n\nCorrect numbers must never be penalized.\n\n==================================================\n8. INSIGHT QUALITY\n==================\n\nEvaluate:\n\n* Relevance\n* Actionability\n* Clarity\n* Conciseness\n* Business usefulness\n* Prioritization\n\nScore:\n\n100 =\nHighly relevant, clear, actionable, concise, and useful.\n\n50 =\nPartially useful, somewhat descriptive, generic, or weakly actionable.\n\n0 =\nPoor, irrelevant, misleading, or unusable.\n\nDo not penalize a report simply because it is concise.\n\nDo not require a recommendation for every metric.\n\n==================================================\n9. TREND QUALITY\n================\n\nEvaluate ONLY whether the report makes trend-related claims or interpretations.\n\nIMPORTANT:\n\nIf the AI report contains NO trend claims, trend statements, growth/decline claims, forecasts, or historical comparisons:\n\ntrend_quality_score MUST be 100.\n\nDo NOT assign 50 merely because no trend was reported.\n\nFor example:\n\n\"key_trends\": []\n\nis NOT a trend-quality failure.\n\nIt means the report made no unsupported trend claim.\n\nLikewise, a report containing only:\n\n* weekly counts\n* product rankings\n* current opportunity values\n* current statuses\n* follow-up recommendations\n\nshould receive trend_quality_score = 100 unless it incorrectly describes these as trends.\n\n==================================================\n10. TREND SCORING\n=================\n\n100 =\nNo unsupported trend claims, OR trend claims are correctly supported by available comparison data.\n\n50 =\nA minor overstatement or weak trend interpretation exists.\n\n0 =\nThe report makes clearly unsupported trend, growth, decline, forecast, or historical-performance claims.\n\nFor a single week's dataset:\n\nGOOD:\n\"Standing Desk was the most represented product this week.\"\n\nBAD:\n\"Standing Desk demand is increasing.\"\n\nGOOD:\n\"Office Furniture had the highest number of leads this week.\"\n\nBAD:\n\"Office Furniture demand is growing.\"\n\nThe BAD statements require historical comparison data.\n\n==================================================\n11. HALLUCINATION DETECTION\n===========================\n\nSet:\n\n\"hallucination_detected\": \"NO\"\n\nwhen there are no unsupported factual or business claims.\n\nSet:\n\n\"hallucination_detected\": \"YES\"\n\nwhen one or more unsupported factual or business claims exist.\n\nOnly include actual unsupported claims in unsupported_claims.\n\nGOOD:\n\n\"AI reported 12 Standing Desk leads, but the SOURCE OF TRUTH shows 8.\"\n\nGOOD:\n\n\"AI stated that quoted opportunities were completed sales, but the SOURCE OF TRUTH only identifies them as Quoted.\"\n\nGOOD:\n\n\"AI reported revenue of $50,000, but the SOURCE OF TRUTH only provides a $50,000 customer budget.\"\n\nBAD:\n\n\"Incorrect product counts.\"\n\nwhen the counts match.\n\nBAD:\n\n\"The report implies completed sales.\"\n\nwhen the report only says \"high-value opportunities.\"\n\nBAD:\n\n\"Unsupported business claim.\"\n\nwithout identifying the actual claim.\n\nIf no unsupported claims exist:\n\n\"unsupported_claims\": []\n\n==================================================\n12. IMPORTANT RULE FOR EMPTY TREND DATA\n=======================================\n\nAn empty trend section is NOT a failure.\n\nFor example:\n\n\"key_trends\": []\n\ndoes NOT mean:\n\n* Poor trend quality\n* Missing required analysis\n* Unsupported trend interpretation\n* Trend score = 50\n\nIf no trend is claimed, assign:\n\ntrend_quality_score = 100\n\nunless the report contains a trend claim elsewhere in the report.\n\n==================================================\n13. OVERALL SCORE\n=================\n\nCalculate:\n\noverall_score =\n(groundedness_score + insight_quality_score + trend_quality_score) / 3\n\nRound to two decimal places when necessary.\n\nExamples:\n\n100 + 100 + 100 = 100\n\n100 + 100 + 50 = 83.33\n\n100 + 50 + 100 = 83.33\n\n50 + 100 + 100 = 83.33\n\n50 + 50 + 100 = 66.67\n\n0 + 50 + 100 = 50\n\n==================================================\n14. EVALUATION PASS\n===================\n\nSet:\n\n\"evaluation_pass\": \"PASS\"\n\nwhen:\n\noverall_score >= 80\n\nSet:\n\n\"evaluation_pass\": \"FAIL\"\n\nwhen:\n\noverall_score < 80\n\n==================================================\n15. FINAL VALIDATION BEFORE OUTPUT\n==================================\n\nBefore returning the JSON, verify:\n\n1. Did every flagged unsupported claim actually contradict or exceed the SOURCE OF TRUTH?\n\n2. Did I accidentally flag a claim that is actually correct?\n\n3. Did I accidentally treat budget as revenue?\n\n4. Did I accidentally treat Quoted as completed sale?\n\n5. Did I accidentally interpret \"high-value opportunity\" as \"completed sale\"?\n\n6. Did I accidentally penalize a report because it contains no trend?\n\n7. If there are no trend claims, is trend_quality_score = 100?\n\n8. If all important CRM metrics match the source, is groundedness_score = 100?\n\n9. Does every item in unsupported_claims identify a real specific problem?\n\n10. Does hallucination_detected match unsupported_claims?\n\n11. Does overall_score exactly equal the average of the three scores?\n\n12. Does evaluation_pass correctly follow the >= 80 rule?\n\n==================================================\n16. OUTPUT FORMAT\n=================\n\nReturn ONLY valid JSON.\n\nDo NOT return markdown.\n\nDo NOT return explanations outside the JSON.\n\nUse EXACTLY these fields:\n\n{\n\"groundedness_score\": 100,\n\"insight_quality_score\": 100,\n\"trend_quality_score\": 100,\n\"overall_score\": 100,\n\"hallucination_detected\": \"NO\",\n\"unsupported_claims\": [],\n\"evaluation_pass\": \"PASS\"\n}\n\nAllowed values:\n\ngroundedness_score:\n0, 50, 100\n\ninsight_quality_score:\n0, 50, 100\n\ntrend_quality_score:\n0, 50, 100\n\noverall_score:\n0 to 100\n\nhallucination_detected:\n\"YES\" or \"NO\"\n\nevaluation_pass:\n\"PASS\" or \"FAIL\"\n\nThe evaluation MUST be based ONLY on the current SOURCE OF TRUTH and AI GENERATED REPORT.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1184,
+        288
+      ],
+      "id": "147af2be-1177-4f6f-9137-dcaa87f5cea5",
+      "name": "Weekly Insight LLM Judge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// SALES GENIE - WEEKLY INSIGHTS\n// DETERMINISTIC EVALUATION\n// ============================================\n\n// Get test case\nconst dataset = $('When fetching a dataset row').first().json;\n\n// IMPORTANT:\n// Use the actual node name from your workflow\nconst agentItem = $('Weekly Sales Insight Agent').first().json;\n\n\n// ============================================\n// HELPER: FIND DATASET FIELD\n// Case-insensitive + trimmed\n// ============================================\n\nfunction getDatasetField(possibleNames) {\n  const key = Object.keys(dataset).find(k =>\n    possibleNames.includes(\n      k.trim().toLowerCase()\n    )\n  );\n\n  return key ? dataset[key] : undefined;\n}\n\n\n// ============================================\n// PARSE AGENT OUTPUT\n// ============================================\n\nlet actual;\n\ntry {\n\n  actual =\n    typeof agentItem.output === 'string'\n      ? JSON.parse(agentItem.output)\n      : agentItem.output;\n\n} catch (error) {\n\n  return [{\n    json: {\n      test_id:\n        getDatasetField(['test_id', 'test id']) || 'UNKNOWN',\n\n      aggregation_accuracy: 0,\n      opportunity_accuracy: 0,\n      format_compliance: 0,\n      deterministic_score: 0,\n      evaluation_status: 'FAIL',\n\n      error:\n        'Agent output is not valid JSON'\n    }\n  }];\n}\n\n\n// ============================================\n// TEST ID\n// ============================================\n\nconst testId =\n  getDatasetField([\n    'test_id',\n    'test id'\n  ]) || 'UNKNOWN';\n\n\n// ============================================\n// 1. AGGREGATION ACCURACY\n// ============================================\n\nconst expected = {\n  total_leads: Number(\n    getDatasetField([\n      'expected_total_leads',\n      'expected total leads'\n    ])\n  ),\n\n  hot_leads: Number(\n    getDatasetField([\n      'expected_hot_leads',\n      'expected hot leads'\n    ])\n  ),\n\n  warm_leads: Number(\n    getDatasetField([\n      'expected_warm_leads',\n      'expected warm leads'\n    ])\n  ),\n\n  cold_leads: Number(\n    getDatasetField([\n      'expected_cold_leads',\n      'expected cold leads'\n    ])\n  ),\n\n  unknown_leads: Number(\n    getDatasetField([\n      'expected_unknown_leads',\n      'expected unknown leads'\n    ])\n  )\n};\n\n\nconst leadSummary =\n  actual.lead_summary || {};\n\n\nconst actualCounts = {\n\n  total_leads:\n    Number(leadSummary.total_leads),\n\n  hot_leads:\n    Number(leadSummary.hot_leads),\n\n  warm_leads:\n    Number(leadSummary.warm_leads),\n\n  cold_leads:\n    Number(leadSummary.cold_leads),\n\n  unknown_leads:\n    Number(leadSummary.unknown_leads)\n\n};\n\n\nconst aggregationChecks = {};\n\nfor (const key of Object.keys(expected)) {\n\n  aggregationChecks[key] =\n    !Number.isNaN(expected[key]) &&\n    expected[key] === actualCounts[key];\n\n}\n\n\nconst aggregationPassed =\n  Object.values(aggregationChecks)\n    .filter(Boolean)\n    .length;\n\n\nconst aggregationTotal =\n  Object.keys(aggregationChecks).length;\n\n\nconst aggregationAccuracy =\n  Math.round(\n    (aggregationPassed / aggregationTotal) * 100\n  );\n\n\n// ============================================\n// 2. HIGH-VALUE OPPORTUNITY ACCURACY\n// Supports both:\n// expected_high_value_opportunities\n// expected_high_value_opportunity_ids\n// ============================================\n\nlet expectedOpportunities = [];\n\n\n// Try newer format first\nconst expectedOpportunityIdsField =\n  getDatasetField([\n    'expected_high_value_opportunity_ids',\n    'expected high value opportunity ids'\n  ]);\n\n\n// --------------------------------------------\n// NEW FORMAT\n// L001,L005,L009\n// --------------------------------------------\n\nif (\n  typeof expectedOpportunityIdsField === 'string' &&\n  expectedOpportunityIdsField.trim() !== ''\n) {\n\n  expectedOpportunities =\n    expectedOpportunityIdsField\n      .split(',')\n      .map(id => ({\n        lead_id: id.trim()\n      }))\n      .filter(item => item.lead_id !== '');\n\n}\n\n\n// --------------------------------------------\n// OLD FORMAT\n// [{\"lead_id\":\"L001\"},{\"lead_id\":\"L005\"}]\n// --------------------------------------------\n\nelse {\n\n  const opportunityField =\n    getDatasetField([\n      'expected_high_value_opportunities',\n      'expected high value opportunities'\n    ]);\n\n  if (Array.isArray(opportunityField)) {\n\n    expectedOpportunities =\n      opportunityField;\n\n  }\n\n  else if (\n    typeof opportunityField === 'string' &&\n    opportunityField.trim() !== ''\n  ) {\n\n    try {\n\n      expectedOpportunities =\n        JSON.parse(opportunityField);\n\n    }\n\n    catch (error) {\n\n      try {\n\n        const cleaned =\n          opportunityField\n            .trim()\n            .replace(/^\"+|\"+$/g, '')\n            .replace(/\"\"/g, '\"');\n\n        expectedOpportunities =\n          JSON.parse(cleaned);\n\n      }\n\n      catch (secondError) {\n\n        expectedOpportunities = [];\n\n      }\n\n    }\n\n  }\n\n}\n\n\nif (!Array.isArray(expectedOpportunities)) {\n\n  expectedOpportunities = [];\n\n}\n\n\nconst actualOpportunities =\n  Array.isArray(\n    actual.high_value_opportunities\n  )\n    ? actual.high_value_opportunities\n    : [];\n\n\n// Expected IDs\nconst expectedIds =\n  expectedOpportunities\n    .map(item =>\n      typeof item === 'string'\n        ? item\n        : item.lead_id\n    )\n    .map(id =>\n      String(id || '').trim()\n    )\n    .filter(Boolean)\n    .sort();\n\n\n// Actual IDs\nconst actualIds =\n  actualOpportunities\n    .map(item =>\n      String(item.lead_id || '').trim()\n    )\n    .filter(Boolean)\n    .sort();\n\n\nconst opportunityAccuracy =\n  JSON.stringify(expectedIds) ===\n  JSON.stringify(actualIds)\n    ? 100\n    : 0;\n\n\n// ============================================\n// 3. FORMAT COMPLIANCE\n// ============================================\n\nconst requiredFields = [\n\n  'executive_summary',\n\n  'lead_summary',\n\n  'top_products',\n\n  'key_trends',\n\n  'high_value_opportunities',\n\n  'follow_up_priorities',\n\n  'recommended_actions',\n\n  'data_quality_notes'\n\n];\n\n\nconst formatChecks = {};\n\n\nfor (const field of requiredFields) {\n\n  formatChecks[field] =\n    Object.prototype.hasOwnProperty.call(\n      actual,\n      field\n    );\n\n}\n\n\nconst formatPassed =\n  Object.values(formatChecks)\n    .filter(Boolean)\n    .length;\n\n\nconst formatTotal =\n  requiredFields.length;\n\n\nconst formatCompliance =\n  Math.round(\n    (formatPassed / formatTotal) * 100\n  );\n\n\n// ============================================\n// 4. FINAL DETERMINISTIC SCORE\n// ============================================\n\nconst deterministicScore =\n  Math.round(\n\n    aggregationAccuracy * 0.60 +\n\n    opportunityAccuracy * 0.25 +\n\n    formatCompliance * 0.15\n\n  );\n\n\nconst evaluationStatus =\n  deterministicScore >= 80\n    ? 'PASS'\n    : 'FAIL';\n\n\n// ============================================\n// FINAL OUTPUT\n// ============================================\n\nreturn [{\n  json: {\n\n    test_id:\n      testId,\n\n    aggregation_accuracy:\n      aggregationAccuracy,\n\n    aggregation_checks:\n      aggregationChecks,\n\n    opportunity_accuracy:\n      opportunityAccuracy,\n\n    expected_opportunity_ids:\n      expectedIds,\n\n    actual_opportunity_ids:\n      actualIds,\n\n    format_compliance:\n      formatCompliance,\n\n    format_checks:\n      formatChecks,\n\n    deterministic_score:\n      deterministicScore,\n\n    evaluation_status:\n      evaluationStatus\n\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        -176
+      ],
+      "id": "ec666ef1-3fb6-4c66-9282-dba2414a04ce",
+      "name": "Deterministic Evals Metrics Comparison"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1184,
+        464
+      ],
+      "id": "bcb3a7c8-0d4b-4147-8bf6-699218d09ff5",
+      "name": "OpenAI Chat Model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "9FNR4xM3HH7aObZ5",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"groundedness_score\": 0,\n  \"insight_quality_score\": 0,\n  \"trend_quality_score\": 0,\n  \"overall_score\": 0,\n  \"hallucination_detected\": \"NO\",\n  \"evaluation_pass\": \"FAIL\",\n  \"groundedness_reason\": \"\",\n  \"insight_quality_reason\": \"\",\n  \"trend_quality_reason\": \"\",\n  \"unsupported_claims\": []\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1344,
+        512
+      ],
+      "id": "29e14fb3-71b0-49f1-a35a-093b74c53a9e",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "12zWaolxz5wmDQwxzWGjzfSgczaFzhj6nPNtQb9_j3v4",
+          "mode": "list",
+          "cachedResultName": "CRM Updates",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/12zWaolxz5wmDQwxzWGjzfSgczaFzhj6nPNtQb9_j3v4/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1230718657,
+          "mode": "list",
+          "cachedResultName": "Metrics",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/12zWaolxz5wmDQwxzWGjzfSgczaFzhj6nPNtQb9_j3v4/edit#gid=1230718657"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Total Leads": "={{ $('Aggregate Weekly Metrics').item.json.total_leads }}",
+            "AI Generated Output": "={{ $('Weekly Sales Insight Agent').item.json.output }}",
+            "output.status Summary": "={{ $('Aggregate Weekly Metrics').item.json.status_summary }}",
+            "output.groundedness_score": "={{ $json.output.groundedness_score }}",
+            "output.insight_quality_score": "={{ $json.output.insight_quality_score }}",
+            "output.trend_quality_score": "={{ $json.output.trend_quality_score }}",
+            "output.overall_score": "={{ $json.output.overall_score }}",
+            "output.hallucination_detected": "={{ $json.output.hallucination_detected }}",
+            "output.evaluation_pass": "={{ $json.output.evaluation_pass }}",
+            "output.unsupported_claims": "={{ $json.output.unsupported_claims }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Total Leads",
+              "displayName": "Total Leads",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "AI Generated Output",
+              "displayName": "AI Generated Output",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "output.status Summary",
+              "displayName": "output.status Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "output.groundedness_score",
+              "displayName": "output.groundedness_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "output.insight_quality_score",
+              "displayName": "output.insight_quality_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "output.trend_quality_score",
+              "displayName": "output.trend_quality_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "output.overall_score",
+              "displayName": "output.overall_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "output.hallucination_detected",
+              "displayName": "output.hallucination_detected",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "output.unsupported_claims",
+              "displayName": "output.unsupported_claims",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "output.evaluation_pass",
+              "displayName": "output.evaluation_pass",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1552,
+        288
+      ],
+      "id": "0c711d9e-87df-4d71-a49c-342b1d10f058",
+      "name": "Append row in sheet",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "HhkPjAfVel3QG2yb",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "① DATA PREPARATION\n\nRetrieve CRM records for the evaluation week\nand create the authoritative weekly metrics.\n\nOUTPUT:\nSOURCE OF TRUTH",
+        "height": 208,
+        "width": 368
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -336,
+        -16
+      ],
+      "id": "4a2bd1f9-2109-4f3e-9b88-f6a05df566b0",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "Extract current week records  and aggregate it - Build Weekly CRM Source of Truth",
+        "height": 96,
+        "width": 368
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        96,
+        -16
+      ],
+      "id": "10841d8b-110f-4fd8-a432-31aa351f8700",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "▶ TWO EXECUTION MODES\n\n1. EXECUTE WORKFLOW\nManual / normal workflow execution.\nUse this to run the Weekly Sales Insights workflow\nagainst the CRM data.\n\n2. FETCHING A DATASET\nEvaluation mode.\nUsed when n8n Evaluations runs a specific testcase\nand injects the dataset into the workflow.\n\nBoth paths feed the SAME:\nFilter → Aggregate → Insight Agent → Evaluation\npipeline.",
+        "height": 304,
+        "width": 1856
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -224,
+        -592
+      ],
+      "id": "fc8cc8d8-fde0-4309-bd5f-6b5ba3137c30",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "③ EVALUATION\n\nEvaluate the AI report against the SAME testcase\nSOURCE OF TRUTH.\n\nDeterministic Evaluation\n→ Validate exact CRM metrics\n\nLLM Evaluation\n→ Groundedness\n→ Insight Quality\n→ Trend Quality\n→ Hallucination Detection",
+        "height": 336,
+        "width": 608
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        176,
+        288
+      ],
+      "id": "a9221ddf-8ee8-48e2-810a-0baf04139301",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "④ OBSERVABILITY\n\nSent to LangFuse - Log the weekly insight generation/evaluation\nfor traceability and debugging."
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1744,
+        64
+      ],
+      "id": "c421cd28-6155-41f1-8c39-f08788ee5634",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "⑤ EVALUATION RESULTS\n\nStore evaluation results for:\n\n• Groundedness\n• Insight Quality\n• Trend Quality\n• Overall Score\n• Hallucination Detection\n• Unsupported Claims\n• PASS / FAIL",
+        "height": 288,
+        "width": 432
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1504,
+        464
+      ],
+      "id": "c98730c2-68ad-4d0c-9e8a-f2ac6e60d6ab",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "12zWaolxz5wmDQwxzWGjzfSgczaFzhj6nPNtQb9_j3v4",
+          "mode": "list",
+          "cachedResultName": "CRM Updates",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/12zWaolxz5wmDQwxzWGjzfSgczaFzhj6nPNtQb9_j3v4/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "TestInput",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/12zWaolxz5wmDQwxzWGjzfSgczaFzhj6nPNtQb9_j3v4/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -96,
+        -192
+      ],
+      "id": "1aa86a7c-6a62-452b-9fe1-ea97af9ea7cd",
+      "name": "Load Generated CRM Records",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "HhkPjAfVel3QG2yb",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "checkIfEvaluating"
+      },
+      "type": "n8n-nodes-base.evaluation",
+      "typeVersion": 4.8,
+      "position": [
+        944,
+        -192
+      ],
+      "id": "2e6dad06-48e2-4117-8a0d-9a93f7071412",
+      "name": "Start Evaluation"
+    },
+    {
+      "parameters": {
+        "source": "googleSheets",
+        "documentId": {
+          "__rl": true,
+          "value": "1404G1X1O35KDRs5IlnS7bttN3TL5nyIHGuZrpQvko0o",
+          "mode": "list",
+          "cachedResultName": "Weekly_Aggregator_Eval_TestData",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1404G1X1O35KDRs5IlnS7bttN3TL5nyIHGuZrpQvko0o/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Test Cases",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1404G1X1O35KDRs5IlnS7bttN3TL5nyIHGuZrpQvko0o/edit#gid=0"
+        },
+        "outputs": {
+          "values": [
+            {
+              "outputName": "opportunity_accuracy",
+              "outputValue": "={{ $json.opportunity_accuracy }}"
+            },
+            {
+              "outputName": "format_compliance",
+              "outputValue": "={{ $json.format_compliance }}"
+            },
+            {
+              "outputName": "deterministic_score",
+              "outputValue": "={{ $json.deterministic_score }}"
+            },
+            {
+              "outputName": "evaluation_status",
+              "outputValue": "={{ $json.evaluation_status }}"
+            },
+            {
+              "outputName": "output",
+              "outputValue": "={{ $('Weekly Sales Insight Agent').item.json.output }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.evaluation",
+      "typeVersion": 4.8,
+      "position": [
+        1744,
+        -176
+      ],
+      "id": "7a44c4be-f3bd-4704-864b-031b3136a25f",
+      "name": "Evals Output Google Sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "HhkPjAfVel3QG2yb",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2192,
+        -176
+      ],
+      "id": "09571d71-5488-4836-99e3-02dbb31c8d61",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "SALES GENIE — W2 WEEKLY SALES INSIGHTS\n\nPURPOSE\nGenerate a weekly sales insights report from CRM data and evaluate\nthe AI-generated report against authoritative weekly CRM metrics.\n\nLLM - OPENAI GPT 4o-mini\n\nWORKFLOW FLOW\n\nCRM Data\n   ↓\nFilter Current Week\n   ↓\nAggregate Weekly Metrics\n   ↓\nWeekly Sales Insight Agent\n   ↓\nAI-Generated Weekly Report\n   ↓\nEvaluation - Include seperate determinstic + LLM as Judge evaluation metrics\n   ↓\nEvaluation Results\n   ↓\nGoogle Sheets\n\nKEY PRINCIPLE\n\nSOURCE OF TRUTH\nAggregated CRM metrics generated by this workflow.\n\nThe AI report must NOT invent:\n• Revenue\n• Completed sales\n• Conversion rates\n• ROI\n• Forecasts\n• Historical trends\n• Product availability\n• Pricing / discounts\n• Customer intent\n\nIMPORTANT\n\nBudget ≠ Revenue\nQuoted ≠ Completed Sale\nOpportunity ≠ Completed Sale\n\nEVALUATION\n\nGroundedness → Are factual claims supported by CRM metrics?\n\nInsight Quality → Are the insights useful and actionable?\n\nTrend Quality → Are trends interpreted without unsupported claims?\n\nPASS CRITERIA-> Overall score >= 80\n\nEvaluation and Test data\nGoogle Sheet -  CRM Updates\nSheet - Testcase\nMetrics - LLM judge evaluation output\n\nEvaluation test data\nGoogle Sheet - Weekly_Aggregator_Eval_TestData\nDeterministic Output - Updated in Testcase sheet",
+        "height": 1680,
+        "width": 1008
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1456,
+        -624
+      ],
+      "id": "73f4c156-08f5-4ffb-9a76-8bc26495ecec",
+      "name": "Sticky Note7"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Filter Weekly Records": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Weekly Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Weekly Metrics": {
+      "main": [
+        [
+          {
+            "node": "Weekly Sales Insight Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Weekly Sales Insight Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Load Generated CRM Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When fetching a dataset row": {
+      "main": [
+        [
+          {
+            "node": "Weekly Sales Insight Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly Sales Insight Agent": {
+      "main": [
+        [
+          {
+            "node": "Start Evaluation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deterministic Evals Metrics Comparison": {
+      "main": [
+        [
+          {
+            "node": "Evals Output Google Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Weekly Insight LLM Judge",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Weekly Insight LLM Judge",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly Insight LLM Judge": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Generated CRM Records": {
+      "main": [
+        [
+          {
+            "node": "Filter Weekly Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Evaluation": {
+      "main": [
+        [
+          {
+            "node": "Deterministic Evals Metrics Comparison",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Weekly Insight Log Trace",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Weekly Insight LLM Judge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evals Output Google Sheet": {
+      "main": [
+        [
+          {
+            "node": "Evals Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "74b10f49-f805-45f3-943a-b745e7bf9407",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f6bfdc2311fd55a80b37111f5684a5513a05387ab8cfe6f4a4f072fb8f964eb6"
+  },
+  "nodeGroups": [],
+  "id": "oLIWrpvff7UJ2SbB",
+  "tags": []
+}
